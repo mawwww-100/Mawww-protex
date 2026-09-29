@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Profile — Mawww Protex</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body class="has-bg">
+<nav class="topbar">
+  <div class="links">
+    <strong style="color:#58a6ff;">Mawww Protex</strong>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/profile">Profile</a>
+  </div>
+  <div class="user">
+    <span id="username">...</span>
+    <button class="small alt" onclick="logout()">Logout</button>
+  </div>
+</nav>
+
+<div class="card">
+  <h3>Info Akun</h3>
+  <div class="row"><label style="min-width:120px;">Username</label><span id="pUsername">-</span></div>
+  <div class="row"><label style="min-width:120px;">Email</label><span id="pEmail">-</span></div>
+  <div class="row"><label style="min-width:120px;">Terdaftar</label><span id="pCreated">-</span></div>
+</div>
+
+<div class="card">
+  <h3>API Key</h3>
+  <p class="hint">Gunakan API key untuk akses programatik via header <code>X-API-Key</code>.</p>
+  <div class="row">
+    <input type="text" id="apiKey" readonly style="font-family:monospace;" />
+    <button class="alt" onclick="copyApiKey()">Copy</button>
+    <button class="danger" onclick="regenKey()">Regenerate</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Ganti Password</h3>
+  <div class="form-group">
+    <label>Password Lama</label>
+    <input type="password" id="curPass" />
+  </div>
+  <div class="form-group">
+    <label>Password Baru</label>
+    <input type="password" id="newPass" />
+    <div class="hint">Minimal 6 karakter.</div>
+  </div>
+  <div class="row">
+    <button onclick="changePass()">Simpan</button>
+  </div>
+  <div id="status" class="status"></div>
+</div>
+
+<div id="toast"></div>
+<script src="/toast.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtDate = ts => ts ? new Date(ts * 1000).toLocaleString('id-ID') : '-';
+
+async function loadMe() {
+  const res = await fetch('/api/auth/me');
+  if (!res.ok) { window.location.href = '/login'; return; }
+  const { user } = await res.json();
+  $('username').textContent = '@' + user.username;
+  $('pUsername').textContent = user.username;
+  $('pEmail').textContent = user.email;
+  $('pCreated').textContent = fmtDate(user.created_at);
+  $('apiKey').value = user.api_key || '';
+}
+
+async function copyApiKey() {
+  await navigator.clipboard.writeText($('apiKey').value);
+  toast('API key dicopy.', 'ok');
+}
+
+async function regenKey() {
+  if (!confirm('Regenerate API key? Key lama akan langsung tidak valid.')) return;
+  const res = await fetch('/api/auth/regenerate-key', { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) { toast(data.error, 'err'); return; }
+  $('apiKey').value = data.api_key;
+  toast('API key baru dibuat.', 'ok');
+}
+
+async function changePass() {
+  const st = $('status');
+  st.className = 'status'; st.textContent = 'Memproses...';
+  const res = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current: $('curPass').value, next: $('newPass').value })
+  });
+  const data = await res.json();
+  if (!res.ok) { st.className = 'status err'; st.textContent = data.error; return; }
+  st.className = 'status ok'; st.textContent = 'Password berhasil diubah.';
+  $('curPass').value = ''; $('newPass').value = '';
+  toast('Password diubah.', 'ok');
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+loadMe();
+</script>
+</body>
+</html>
