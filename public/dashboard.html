@@ -1,289 +1,75 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dashboard — Mawww Protex</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Mawww Protex</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
-<body class="has-bg">
-<nav class="topbar">
-  <div class="links">
-    <strong style="color:#58a6ff;">Mawww Protex</strong>
-    <a href="/dashboard">Dashboard</a>
-    <a href="/profile">Profile</a>
-  </div>
-  <div class="user">
-    <span id="username">...</span>
-    <button class="small alt" onclick="logout()">Logout</button>
-  </div>
-</nav>
+<body>
+  <header class="app-header">
+    <div class="brand">Mawww Protex</div>
+    <nav>
+      <a href="/dashboard" class="active">Dashboard</a>
+      <a href="/profile">Profil</a>
+      <span class="user" data-username></span>
+      <button class="btn btn-sm" data-logout>Logout</button>
+    </nav>
+  </header>
 
-<div class="card">
-  <h3>Statistik</h3>
-  <div class="grid-stats">
-    <div class="stat-box"><div class="num" id="st-scripts">0</div><div class="lbl">Total Script</div></div>
-    <div class="stat-box"><div class="num" id="st-exec">0</div><div class="lbl">Total Execution</div></div>
-    <div class="stat-box"><div class="num" id="st-public">0</div><div class="lbl">Script Publik</div></div>
-  </div>
-</div>
+  <main class="container">
+    <section class="stats">
+      <div class="stat">
+        <div class="label">Total Script</div>
+        <div class="value" id="stat-scripts">0</div>
+      </div>
+      <div class="stat">
+        <div class="label">Total Eksekusi</div>
+        <div class="value" id="stat-executions">0</div>
+      </div>
+    </section>
 
-<div class="card">
-  <h3>Obfuscate Script Baru</h3>
-  <div class="row">
-    <input type="text" id="scriptName" placeholder="Nama script..." style="max-width:260px;" />
-    <input type="number" id="expiresIn" placeholder="Expired (hari, kosong=permanent)" style="max-width:280px;" min="0" />
-  </div>
-  <textarea id="inputCode" placeholder="-- Paste kode Lua di sini"></textarea>
-  <div class="row">
-    <button id="btnObf" onclick="obfuscate()">Obfuscate & Simpan</button>
-    <button class="alt" onclick="downloadOutput()">Download .lua</button>
-  </div>
-  <div id="status" class="status"></div>
-  <h4 style="margin-top:16px;">Loader untuk Delta</h4>
-  <textarea id="loader" readonly style="min-height:120px;"></textarea>
-  <div class="row">
-    <button class="alt" onclick="copyLoader()">Copy Loader</button>
-  </div>
-</div>
+    <section class="card">
+      <h2>Buat Script Baru</h2>
+      <form id="create-script-form" novalidate>
+        <div class="field">
+          <label for="name">Nama Script</label>
+          <input id="name" name="name" type="text" required />
+        </div>
+        <div class="field">
+          <label for="code">Kode Lua</label>
+          <textarea id="code" name="code" rows="8" placeholder="print('hello world')" required></textarea>
+        </div>
+        <button id="create-script-submit" class="btn btn-primary" type="submit">Upload &amp; Obfuscate</button>
+      </form>
+    </section>
 
-<div class="card">
-  <div class="row between">
-    <h3>Script Saya</h3>
-    <input type="text" id="searchQ" placeholder="Cari nama script..." style="max-width:240px;" oninput="loadScripts()" />
-  </div>
-  <table>
-    <thead>
-      <tr><th>#</th><th>Nama</th><th>Mode</th><th>Status</th><th>Execution</th><th>Dibuat</th><th>Aksi</th></tr>
-    </thead>
-    <tbody id="tbody"><tr><td colspan="7" style="text-align:center;color:#8b949e;">Memuat...</td></tr></tbody>
-  </table>
-</div>
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">Script Saya</h2>
+        <button id="refresh-scripts" class="btn btn-sm">Refresh</button>
+      </div>
 
-<div class="modal-bg" id="modalBg">
-  <div class="modal">
-    <div class="row between">
-      <h3 id="modalTitle">Detail Script</h3>
-      <button class="small alt" onclick="closeModal()">Tutup</button>
-    </div>
-    <div class="row">
-      <button class="alt" onclick="copyModal('code')">Copy Obfuscated</button>
-      <button class="alt" onclick="downloadModal()">Download .lua</button>
-      <button class="alt" onclick="copyModal('loader')">Copy Loader</button>
-    </div>
+      <p id="scripts-loading" class="muted">Memuat...</p>
+      <p id="scripts-empty" class="muted" hidden>Belum ada script. Buat yang pertama di atas.</p>
 
-    <h4 style="margin-top:16px;">Obfuscated Code</h4>
-    <textarea id="modalCode" readonly style="min-height:200px;"></textarea>
+      <table>
+        <thead>
+          <tr>
+            <th>Nama</th>
+            <th>ID</th>
+            <th>Dibuat</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="scripts-list"></tbody>
+      </table>
+    </section>
+  </main>
 
-    <h4>Loader</h4>
-    <textarea id="modalLoader" readonly style="min-height:100px;"></textarea>
-
-    <h4 style="margin-top:16px;">HWID Whitelist <span class="hint">(kosongkan = semua HWID bisa akses)</span></h4>
-    <div class="row">
-      <input type="text" id="wlHwid" placeholder="HWID..." style="max-width:280px;" />
-      <input type="text" id="wlNote" placeholder="Catatan (opsional)" style="max-width:240px;" />
-      <button class="small" onclick="addWhitelist()">Tambah</button>
-    </div>
-    <table>
-      <thead><tr><th>HWID</th><th>Catatan</th><th>Aksi</th></tr></thead>
-      <tbody id="wlBody"></tbody>
-    </table>
-
-    <h4 style="margin-top:16px;">Execution Log <span class="hint">(50 terakhir)</span></h4>
-    <table>
-      <thead><tr><th>Waktu</th><th>Executor</th><th>HWID</th></tr></thead>
-      <tbody id="execBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<div id="toast"></div>
-<script src="/toast.js"></script>
-<script>
-const $ = (id) => document.getElementById(id);
-const fmtDate = ts => ts ? new Date(ts * 1000).toLocaleString('id-ID') : '-';
-let currentScript = null;
-
-async function loadMe() {
-  const res = await fetch('/api/auth/me');
-  if (!res.ok) { window.location.href = '/login'; return; }
-  const data = await res.json();
-  $('username').textContent = '@' + data.user.username;
-  loadStats(); loadScripts();
-}
-
-async function loadStats() {
-  const res = await fetch('/api/stats');
-  if (!res.ok) return;
-  const { stats } = await res.json();
-  $('st-scripts').textContent = stats.totalScripts;
-  $('st-exec').textContent = stats.totalExec;
-  $('st-public').textContent = stats.totalPublic;
-}
-
-async function loadScripts() {
-  const q = encodeURIComponent($('searchQ').value || '');
-  const res = await fetch('/api/scripts?q=' + q);
-  if (!res.ok) return;
-  const { scripts } = await res.json();
-  if (!scripts.length) {
-    $('tbody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#8b949e;">Belum ada script.</td></tr>';
-    return;
-  }
-  $('tbody').innerHTML = scripts.map(s => {
-    const expired = s.expires_at && s.expires_at < Math.floor(Date.now() / 1000);
-    const status = expired
-      ? '<span class="badge-red">EXPIRED</span>'
-      : (s.is_public ? '<span class="badge-green">PUBLIC</span>' : '<span class="badge-blue">PRIVATE</span>');
-    return `
-      <tr>
-        <td>${s.id}</td>
-        <td>${escapeHtml(s.name)}</td>
-        <td><span class="badge-blue">${s.mode}</span></td>
-        <td>${status}</td>
-        <td>${s.executions}</td>
-        <td>${fmtDate(s.created_at)}</td>
-        <td>
-          <button class="small alt" onclick="viewScript(${s.id})">Lihat</button>
-          <button class="small" onclick="togglePublic(${s.id})">Toggle Public</button>
-          <button class="small danger" onclick="deleteScript(${s.id})">Hapus</button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-async function obfuscate() {
-  const btn = $('btnObf');
-  if (!$('inputCode').value.trim()) { toast('Code kosong.', 'err'); return; }
-  btn.disabled = true; toast('Memproses...');
-  try {
-    const res = await fetch('/api/scripts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: $('scriptName').value || 'Untitled',
-        code: $('inputCode').value,
-        mode: 'direct',
-        expires_in_days: $('expiresIn').value || null
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { toast(data.error || 'Error', 'err'); return; }
-    $('loader').value = data.loader;
-    toast('Script berhasil disimpan.', 'ok');
-    loadStats(); loadScripts();
-  } catch (e) { toast(e.message, 'err'); }
-  finally { btn.disabled = false; }
-}
-
-async function viewScript(id) {
-  const res = await fetch('/api/scripts/' + id);
-  if (!res.ok) { toast('Gagal memuat script.', 'err'); return; }
-  const { script, whitelist, executions } = await res.json();
-  currentScript = script;
-  $('modalTitle').textContent = `Script #${script.id} — ${script.name}`;
-  $('modalCode').value = script.obfuscated_code;
-  $('modalLoader').value = script.loader_snippet;
-
-  $('wlBody').innerHTML = whitelist.length ? whitelist.map(w => `
-    <tr>
-      <td>${escapeHtml(w.hwid)}</td>
-      <td>${escapeHtml(w.note || '')}</td>
-      <td><button class="small danger" onclick="deleteWhitelist(${w.id})">Hapus</button></td>
-    </tr>
-  `).join('') : '<tr><td colspan="3" style="color:#8b949e;">Belum ada whitelist.</td></tr>';
-
-  $('execBody').innerHTML = executions.length ? executions.map(e => `
-    <tr>
-      <td>${fmtDate(e.executed_at)}</td>
-      <td>${escapeHtml(e.executor || 'unknown')}</td>
-      <td style="font-family:monospace;font-size:11px;">${escapeHtml(e.hwid || '-')}</td>
-    </tr>
-  `).join('') : '<tr><td colspan="3" style="color:#8b949e;">Belum ada eksekusi.</td></tr>';
-
-  $('modalBg').classList.add('open');
-}
-
-function closeModal() { $('modalBg').classList.remove('open'); currentScript = null; }
-
-async function addWhitelist() {
-  if (!currentScript) return;
-  const hwid = $('wlHwid').value.trim();
-  const note = $('wlNote').value.trim();
-  if (!hwid) { toast('HWID wajib.', 'err'); return; }
-  const res = await fetch(`/api/scripts/${currentScript.id}/whitelist`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hwid, note })
-  });
-  const data = await res.json();
-  if (!res.ok) { toast(data.error, 'err'); return; }
-  toast('HWID ditambahkan.', 'ok');
-  $('wlHwid').value = ''; $('wlNote').value = '';
-  viewScript(currentScript.id);
-}
-
-async function deleteWhitelist(wid) {
-  if (!currentScript) return;
-  await fetch(`/api/scripts/${currentScript.id}/whitelist/${wid}`, { method: 'DELETE' });
-  toast('HWID dihapus.', 'ok');
-  viewScript(currentScript.id);
-}
-
-async function togglePublic(id) {
-  const res = await fetch(`/api/scripts/${id}/toggle-public`, { method: 'POST' });
-  if (res.ok) { toast('Status diubah.', 'ok'); loadScripts(); loadStats(); }
-}
-
-async function deleteScript(id) {
-  if (!confirm('Hapus script #' + id + '?')) return;
-  await fetch('/api/scripts/' + id, { method: 'DELETE' });
-  toast('Script dihapus.', 'ok');
-  loadStats(); loadScripts();
-}
-
-function downloadOutput() {
-  if (!$('loader').value) return;
-  const code = $('modalCode')?.value || '';
-  if (!code) { toast('Buka script dulu untuk download.', 'err'); return; }
-  const blob = new Blob([code], { type: 'text/plain' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'mawww-protex-obfuscated.lua';
-  a.click();
-}
-
-function downloadModal() {
-  if (!currentScript) return;
-  const blob = new Blob([currentScript.obfuscated_code], { type: 'text/plain' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `mawww-${currentScript.id}.lua`;
-  a.click();
-}
-
-async function copyLoader() {
-  await navigator.clipboard.writeText($('loader').value);
-  toast('Loader dicopy.', 'ok');
-}
-
-async function copyModal(which) {
-  const text = which === 'loader' ? $('modalLoader').value : $('modalCode').value;
-  await navigator.clipboard.writeText(text);
-  toast('Dicopy.', 'ok');
-}
-
-async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/login';
-}
-
-loadMe();
-</script>
+  <script src="/js/toast.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/guard.js"></script>
+  <script src="/js/dashboard.js"></script>
 </body>
 </html>
