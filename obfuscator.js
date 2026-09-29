@@ -1,8 +1,5 @@
 // obfuscator.js
 
-/**
- * Ratakan array bersarang jadi 1 dimensi.
- */
 function flattenArray(arr) {
     const result = [];
     const stack = [arr];
@@ -23,11 +20,10 @@ function rnd(prefix = '_') {
 
 /**
  * Obfuscate Lua source → byte array + loader universal.
- *
- * PENTING untuk kompatibilitas Delta:
- * - Tidak pakai `table.create` (tidak ada di Delta lama).
- * - `loadstring` hanya dipanggil dengan 1 argumen.
- * - Loader memakai `loadstring(source)()` saja.
+ * Delta-compatible:
+ * - Tidak pakai table.create
+ * - loadstring hanya 1 argumen
+ * - Tidak pakai getfenv
  */
 function obfuscateLua(source, mode = 'direct') {
     if (typeof source !== 'string' || source.length === 0) {
@@ -37,14 +33,12 @@ function obfuscateLua(source, mode = 'direct') {
         throw new Error('Source terlalu besar (max 500KB).');
     }
 
-    // Encode setiap karakter ke byte
     const bytes = [];
     for (let i = 0; i < source.length; i++) {
         bytes.push(source.charCodeAt(i) & 0xff);
     }
     const flat = flattenArray([bytes]);
 
-    // Pecah jadi chunk 400 byte agar literal tidak terlalu panjang
     const CHUNK = 400;
     const chunks = [];
     for (let i = 0; i < flat.length; i += CHUNK) {
@@ -58,9 +52,6 @@ function obfuscateLua(source, mode = 'direct') {
 
     const chunkLua = chunks.map(c => `{${c.join(',')}}`).join(',');
 
-    // ---- Output utama (kompatibel Delta) ----
-    // Ganti table.create() → {}
-    // Loader hanya pakai loadstring(code)()
     const lines = [
         `--[[ Mawww Protex | mode=${mode} | delta-compatible ]]`,
         `local ${vData}_c = {${chunkLua}}`,
@@ -79,14 +70,18 @@ function obfuscateLua(source, mode = 'direct') {
     return lines.join('\n');
 }
 
-/**
- * Generate loader snippet untuk Delta / executor lain.
- * Ini yang ditempel user ke Delta.
- */
 function generateLoaderSnippet(scriptUrl, accessKey) {
-    const keyPart = accessKey ? `, "${accessKey}"` : '';
-    return `-- Mawww Protex Loader — compatible with Delta, Hydrogen, Wave, Xeno, Codex, Arceus X
-loadstring(game:HttpGet("${scriptUrl}"))(${keyPart})`;
+    // Loader universal, HWID opsional
+    return `-- Mawww Protex Loader | Delta / Hydrogen / Wave / Xeno / Codex / Arceus
+-- Version: 2.0
+local __url = "${scriptUrl}"
+local __key = "${accessKey || ''}"
+local __hwid = (gethwid and gethwid()) or (syn and syn.get_hwid and syn.get_hwid()) or "unknown"
+local __exec = (identifyexecutor and identifyexecutor()) or "unknown"
+local __full = __url .. "?key=" .. __key .. "&hwid=" .. tostring(__hwid) .. "&executor=" .. tostring(__exec)
+local __src = game:HttpGet(__full)
+if not __src or __src == "" then warn("[Mawww Protex] Source kosong / akses ditolak.") return end
+loadstring(__src)()`;
 }
 
 module.exports = { obfuscateLua, generateLoaderSnippet };
