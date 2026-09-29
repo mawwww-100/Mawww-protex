@@ -1,58 +1,43 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Daftar — Mawww Protex</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daftar — Mawww Protex</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
-<div class="auth-wrap">
-  <div class="card">
-    <h1>Daftar <span style="color:#58a6ff;">Mawww Protex</span></h1>
-    <p class="sub" style="color:#8b949e;margin-top:0;">Gratis untuk semua orang.</p>
-    <div class="form-group">
-      <label>Username</label>
-      <input type="text" id="username" />
-      <div class="hint">3-20 karakter, huruf/angka/underscore.</div>
-    </div>
-    <div class="form-group">
-      <label>Email</label>
-      <input type="email" id="email" />
-    </div>
-    <div class="form-group">
-      <label>Password</label>
-      <input type="password" id="password" />
-      <div class="hint">Minimal 6 karakter.</div>
-    </div>
-    <div class="row">
-      <button id="btn" onclick="register()">Daftar</button>
-      <span style="color:#8b949e;font-size:13px;">Sudah punya akun? <a href="/login">Login</a></span>
-    </div>
-    <div id="status" class="status"></div>
-  </div>
-</div>
-<script>
-const $ = (id) => document.getElementById(id);
-async function register() {
-  const btn = $('btn'), st = $('status');
-  btn.disabled = true; st.className = 'status'; st.textContent = 'Memproses...';
-  try {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: $('username').value,
-        email: $('email').value,
-        password: $('password').value
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { st.className = 'status err'; st.textContent = data.error; return; }
-    window.location.href = '/dashboard';
-  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
-  finally { btn.disabled = false; }
-}
-</script>
+<body class="auth-page">
+  <main class="auth-card">
+    <header class="auth-header">
+      <h1>Buat Akun</h1>
+      <p>Daftar untuk mulai menggunakan Mawww Protex</p>
+    </header>
+
+    <form id="register-form" novalidate>
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required />
+      </div>
+      <div class="field">
+        <label for="confirm">Konfirmasi Password</label>
+        <input id="confirm" name="confirm" type="password" autocomplete="new-password" required />
+      </div>
+      <button id="register-submit" class="btn btn-primary btn-block" type="submit">Daftar</button>
+    </form>
+
+    <p class="auth-footer">Sudah punya akun? <a href="/login">Masuk</a></p>
+  </main>
+
+  <script src="/js/toast.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/register.js"></script>
 </body>
 </html>
