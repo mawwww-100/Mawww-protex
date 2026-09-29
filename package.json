@@ -1,6 +1,6 @@
 {
   "name": "mawww-protex",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Free Lua obfuscator for Roblox — Delta compatible",
   "main": "server.js",
   "scripts": {
