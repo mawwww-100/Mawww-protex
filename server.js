@@ -1,297 +1,333 @@
-// server.js
-const express = require('express');
+'use strict';
+
+require('dotenv').config?.();
+
 const path = require('path');
-const cookieParser = require('cookie-parser');
-const bcrypt = require('bcryptjs');
+const express = require('express');
 const rateLimit = require('express-rate-limit');
 
-const db = require('./db');
-const {
-    signToken,
-    setAuthCookie,
-    clearAuthCookie,
-    requireAuth,
-    requireAuthPage,
-    redirectIfAuthed,
-    generateApiKey,
-    generateAccessKey
-} = require('./auth');
-const { obfuscateLua, generateLoaderSnippet } = require('./obfuscator');
+const db = require('./src/db');
+const auth = require('./src/auth');
+const { obfuscateLua } = require('./src/obfuscator');
+
+// Validasi JWT_SECRET — wajib ada, biar gagal cepat kalau lupa set
+if (!process.env.JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET belum diset di environment variables.');
+  console.error('        Generate: openssl rand -hex 32');
+  process.exit(1);
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.set('trust proxy', 1); // Railway pakai reverse proxy
 
-app.set('trust proxy', 1);
-app.use(express.json({ limit: '10mb' }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+// --- Middleware global ---
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-/* =========================
-   RATE LIMITERS
-   ========================= */
+// Static file dari folder public/
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0,
+  etag: true
+}));
+
+// --- Rate limiters ---
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 30,
-    message: { error: 'Terlalu banyak percobaan. Coba lagi nanti.' }
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Terlalu banyak percobaan, coba lagi nanti' }
 });
 
 const obfuscateLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 20,
-    message: { error: 'Rate limit tercapai. Tunggu sebentar.' }
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Batas obfuscate tercapai, coba lagi sebentar lagi' }
 });
 
-/* =========================
-   AUTH
-   ========================= */
+const rawLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Terlalu banyak permintaan' }
+});
+
+// =========================================================
+// ROUTES — Halaman HTML
+// =========================================================
+
+const redirectIfAuthed = (req, res, next) => {
+  const token = req.cookies?.token || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (token) {
+    const user = auth.verifyToken(token);
+    if (user) return res.redirect('/dashboard');
+  }
+  next();
+};
+
+app.get('/', redirectIfAuthed, (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'login.html'))
+);
+
+app.get('/login', redirectIfAuthed, (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'login.html'))
+);
+
+app.get('/register', redirectIfAuthed, (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'register.html'))
+);
+
+app.get('/dashboard', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'))
+);
+
+app.get('/profile', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'profile.html'))
+);
+
+// Redirect .html ke clean URL (optional)
+app.get('/login.html', (req, res) => res.redirect('/login'));
+app.get('/register.html', (req, res) => res.redirect('/register'));
+app.get('/profile.html', (req, res) => res.redirect('/profile'));
+
+// =========================================================
+// API — Auth
+// =========================================================
+
 app.post('/api/auth/register', authLimiter, async (req, res) => {
-    try {
-        let { username, email, password } = req.body || {};
-        username = String(username || '').trim();
-        email = String(email || '').trim().toLowerCase();
-        password = String(password || '');
+  try {
+    const { username, email, password } = req.body || {};
 
-        if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-            return res.status(400).json({ error: 'Username 3-20 karakter, huruf/angka/underscore.' });
-        }
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-            return res.status(400).json({ error: 'Email tidak valid.' });
-        }
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'Password minimal 6 karakter.' });
-        }
-
-        const exists = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
-        if (exists) return res.status(409).json({ error: 'Username atau email sudah dipakai.' });
-
-        const hash = await bcrypt.hash(password, 10);
-        const apiKey = generateApiKey();
-        const info = db.prepare(
-            'INSERT INTO users (username, email, password_hash, api_key) VALUES (?, ?, ?, ?)'
-        ).run(username, email, hash, apiKey);
-
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-        setAuthCookie(res, signToken(user));
-        res.json({ ok: true, user: { id: user.id, username } });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Gagal register.' });
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'username, email, dan password wajib diisi' });
     }
+    if (username.length < 3 || username.length > 32) {
+      return res.status(400).json({ error: 'Username harus 3-32 karakter' });
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      return res.status(400).json({ error: 'Username hanya boleh huruf, angka, dan underscore' });
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return res.status(400).json({ error: 'Format email tidak valid' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    }
+
+    const existing = db.getUserByUsernameOrEmail(username, email);
+    if (existing) {
+      return res.status(409).json({ error: 'Username atau email sudah dipakai' });
+    }
+
+    const user = await auth.createUser(username, email, password);
+    const token = auth.signToken(user);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        apiKey: user.api_key
+      }
+    });
+  } catch (err) {
+    console.error('[register]', err);
+    res.status(500).json({ error: 'Gagal membuat akun' });
+  }
 });
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
-    try {
-        const { username, password } = req.body || {};
-        const user = db.prepare(
-            'SELECT * FROM users WHERE username = ? OR email = ?'
-        ).get(String(username || ''), String(username || '').toLowerCase());
+  try {
+    const { identifier, username, email, password } = req.body || {};
+    const id = identifier || username || email;
 
-        if (!user) return res.status(401).json({ error: 'Username/email atau password salah.' });
-        const ok = await bcrypt.compare(String(password || ''), user.password_hash);
-        if (!ok) return res.status(401).json({ error: 'Username/email atau password salah.' });
-
-        setAuthCookie(res, signToken(user));
-        res.json({ ok: true, user: { id: user.id, username: user.username } });
-    } catch (err) {
-        res.status(500).json({ error: 'Gagal login.' });
+    if (!id || !password) {
+      return res.status(400).json({ error: 'Username/email dan password wajib diisi' });
     }
+
+    const user = db.getUserByUsernameOrEmail(id, id);
+    if (!user) {
+      return res.status(401).json({ error: 'Kredensial salah' });
+    }
+
+    const ok = await auth.verifyPassword(password, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Kredensial salah' });
+    }
+
+    const token = auth.signToken(user);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        apiKey: user.api_key
+      }
+    });
+  } catch (err) {
+    console.error('[login]', err);
+    res.status(500).json({ error: 'Gagal login' });
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
-    clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', auth.requireAuth, (req, res) => {
+  const user = db.getUserById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
+
+  res.json({
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      apiKey: user.api_key,
+      createdAt: user.created_at
+    }
+  });
+});
+
+app.post('/api/auth/change-password', auth.requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Password lama dan baru wajib diisi' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password baru minimal 6 karakter' });
+    }
+
+    const user = db.getUserById(req.user.id);
+    const ok = await auth.verifyPassword(currentPassword, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Password saat ini salah' });
+    }
+
+    const hash = await auth.hashPassword(newPassword);
+    db.updateUserPassword(user.id, hash);
+
     res.json({ ok: true });
+  } catch (err) {
+    console.error('[change-password]', err);
+    res.status(500).json({ error: 'Gagal mengganti password' });
+  }
 });
 
-app.get('/api/auth/me', requireAuth, (req, res) => {
-    const full = db.prepare('SELECT id, username, email, api_key, is_admin, created_at FROM users WHERE id = ?').get(req.user.id);
-    res.json({ user: full });
+app.post('/api/auth/regenerate-key', auth.requireAuth, (req, res) => {
+  try {
+    const newKey = auth.generateApiKey();
+    db.updateUserApiKey(req.user.id, newKey);
+    res.json({ apiKey: newKey });
+  } catch (err) {
+    console.error('[regenerate-key]', err);
+    res.status(500).json({ error: 'Gagal regenerasi API key' });
+  }
 });
 
-app.post('/api/auth/change-password', requireAuth, async (req, res) => {
-    try {
-        const { current, next } = req.body || {};
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-        const ok = await bcrypt.compare(String(current || ''), user.password_hash);
-        if (!ok) return res.status(401).json({ error: 'Password lama salah.' });
-        if (String(next || '').length < 6) return res.status(400).json({ error: 'Password baru minimal 6 karakter.' });
+// =========================================================
+// API — Scripts
+// =========================================================
 
-        const hash = await bcrypt.hash(next, 10);
-        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Gagal ganti password.' });
+app.get('/api/scripts', auth.requireAuth, (req, res) => {
+  const scripts = db.getScriptsByUser(req.user.id);
+  res.json(scripts);
+});
+
+app.post('/api/scripts', auth.requireAuth, obfuscateLimiter, (req, res) => {
+  try {
+    const { name, code } = req.body || {};
+
+    if (!name || !code) {
+      return res.status(400).json({ error: 'Nama dan kode wajib diisi' });
     }
-});
-
-app.post('/api/auth/regenerate-key', requireAuth, (req, res) => {
-    const newKey = generateApiKey();
-    db.prepare('UPDATE users SET api_key = ? WHERE id = ?').run(newKey, req.user.id);
-    res.json({ ok: true, api_key: newKey });
-});
-
-/* =========================
-   SCRIPTS
-   ========================= */
-app.get('/api/scripts', requireAuth, (req, res) => {
-    const q = (req.query.q || '').toString().trim();
-    let rows;
-    if (q) {
-        rows = db.prepare(`
-            SELECT id, name, mode, is_public, executions, created_at, expires_at
-            FROM scripts WHERE user_id = ? AND name LIKE ?
-            ORDER BY created_at DESC LIMIT 200
-        `).all(req.user.id, `%${q}%`);
-    } else {
-        rows = db.prepare(`
-            SELECT id, name, mode, is_public, executions, created_at, expires_at
-            FROM scripts WHERE user_id = ?
-            ORDER BY created_at DESC LIMIT 200
-        `).all(req.user.id);
+    if (name.length > 100) {
+      return res.status(400).json({ error: 'Nama maksimal 100 karakter' });
     }
-    res.json({ scripts: rows });
-});
-
-app.post('/api/scripts', requireAuth, obfuscateLimiter, (req, res) => {
-    try {
-        const { name, code, mode, expires_in_days } = req.body || {};
-        if (!name || !code) return res.status(400).json({ error: 'Nama dan code wajib.' });
-
-        const obfuscated = obfuscateLua(code, mode || 'direct');
-        const accessKey = generateAccessKey();
-
-        let expiresAt = null;
-        if (expires_in_days && Number(expires_in_days) > 0) {
-            expiresAt = Math.floor(Date.now() / 1000) + Number(expires_in_days) * 86400;
-        }
-
-        const info = db.prepare(`
-            INSERT INTO scripts (user_id, name, original_code, obfuscated_code, loader_snippet, mode, access_key, expires_at)
-            VALUES (?, ?, ?, ?, '', ?, ?, ?)
-        `).run(req.user.id, String(name).slice(0, 100), code, obfuscated, mode || 'direct', accessKey, expiresAt);
-
-        const scriptId = info.lastInsertRowid;
-        const scriptUrl = `${req.protocol}://${req.get('host')}/api/raw/${scriptId}`;
-        const loader = generateLoaderSnippet(scriptUrl, accessKey);
-
-        db.prepare('UPDATE scripts SET loader_snippet = ? WHERE id = ?').run(loader, scriptId);
-
-        res.json({ ok: true, id: scriptId, loader, accessKey });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    }
-});
-
-app.get('/api/scripts/:id', requireAuth, (req, res) => {
-    const row = db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?')
-        .get(req.params.id, req.user.id);
-    if (!row) return res.status(404).json({ error: 'Script tidak ditemukan.' });
-    const wl = db.prepare('SELECT * FROM whitelist WHERE script_id = ? ORDER BY created_at DESC').all(row.id);
-    const execs = db.prepare('SELECT * FROM executions WHERE script_id = ? ORDER BY executed_at DESC LIMIT 50').all(row.id);
-    res.json({ script: row, whitelist: wl, executions: execs });
-});
-
-app.delete('/api/scripts/:id', requireAuth, (req, res) => {
-    const info = db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?')
-        .run(req.params.id, req.user.id);
-    if (info.changes === 0) return res.status(404).json({ error: 'Tidak ada yang dihapus.' });
-    res.json({ ok: true });
-});
-
-app.post('/api/scripts/:id/toggle-public', requireAuth, (req, res) => {
-    const row = db.prepare('SELECT id, is_public FROM scripts WHERE id = ? AND user_id = ?')
-        .get(req.params.id, req.user.id);
-    if (!row) return res.status(404).json({ error: 'Script tidak ditemukan.' });
-    db.prepare('UPDATE scripts SET is_public = ? WHERE id = ?').run(row.is_public ? 0 : 1, row.id);
-    res.json({ ok: true, is_public: !row.is_public });
-});
-
-/* =========================
-   WHITELIST (HWID)
-   ========================= */
-app.post('/api/scripts/:id/whitelist', requireAuth, (req, res) => {
-    const { hwid, note } = req.body || {};
-    if (!hwid) return res.status(400).json({ error: 'HWID wajib.' });
-    const row = db.prepare('SELECT id FROM scripts WHERE id = ? AND user_id = ?')
-        .get(req.params.id, req.user.id);
-    if (!row) return res.status(404).json({ error: 'Script tidak ditemukan.' });
-
-    try {
-        db.prepare('INSERT INTO whitelist (script_id, hwid, note) VALUES (?, ?, ?)')
-            .run(row.id, String(hwid).slice(0, 128), String(note || '').slice(0, 200));
-        res.json({ ok: true });
-    } catch (err) {
-        res.status(400).json({ error: 'HWID sudah ada.' });
-    }
-});
-
-app.delete('/api/scripts/:id/whitelist/:wid', requireAuth, (req, res) => {
-    const row = db.prepare('SELECT id FROM scripts WHERE id = ? AND user_id = ?')
-        .get(req.params.id, req.user.id);
-    if (!row) return res.status(404).json({ error: 'Script tidak ditemukan.' });
-    db.prepare('DELETE FROM whitelist WHERE id = ? AND script_id = ?').run(req.params.wid, row.id);
-    res.json({ ok: true });
-});
-
-/* =========================
-   RAW SCRIPT (dipanggil Delta)
-   ========================= */
-app.get('/api/raw/:id', (req, res) => {
-    const id = Number(req.params.id);
-    const key = req.query.key;
-    const hwid = req.query.hwid || null;
-    const executor = req.query.executor || null;
-    const ip = req.ip;
-
-    const script = db.prepare('SELECT * FROM scripts WHERE id = ?').get(id);
-    if (!script) return res.type('text/plain').send('-- [Mawww Protex] Script tidak ditemukan.');
-
-    // Cek expired
-    if (script.expires_at && script.expires_at < Math.floor(Date.now() / 1000)) {
-        return res.type('text/plain').send('-- [Mawww Protex] Script sudah expired.');
+    if (code.length > 200000) {
+      return res.status(400).json({ error: 'Kode terlalu panjang (max 200KB)' });
     }
 
-    // Cek access key (kalau bukan public)
-    if (!script.is_public && script.access_key !== key) {
-        return res.type('text/plain').send('-- [Mawww Protex] Access key salah.');
-    }
+    const obfuscated = obfuscateLua(code);
+    const script = db.createScript(req.user.id, name, obfuscated);
 
-    // Cek HWID whitelist (kalau ada whitelist, HWID wajib match)
-    const wlCount = db.prepare('SELECT COUNT(*) AS c FROM whitelist WHERE script_id = ?').get(id).c;
-    if (wlCount > 0) {
-        if (!hwid) return res.type('text/plain').send('-- [Mawww Protex] HWID tidak terdeteksi.');
-        const ok = db.prepare('SELECT id FROM whitelist WHERE script_id = ? AND hwid = ?').get(id, hwid);
-        if (!ok) return res.type('text/plain').send('-- [Mawww Protex] HWID tidak di-whitelist.');
-    }
-
-    // Catat execution
-    db.prepare('INSERT INTO executions (script_id, hwid, executor, ip) VALUES (?, ?, ?, ?)')
-        .run(id, hwid, executor, ip);
-    db.prepare('UPDATE scripts SET executions = executions + 1 WHERE id = ?').run(id);
-
-    res.type('text/plain').send(script.obfuscated_code);
+    res.json({
+      id: script.id,
+      name: script.name,
+      createdAt: script.created_at,
+      rawUrl: '/api/raw/' + script.id
+    });
+  } catch (err) {
+    console.error('[create-script]', err);
+    res.status(500).json({ error: 'Gagal membuat script' });
+  }
 });
 
-/* =========================
-   STATS
-   ========================= */
-app.get('/api/stats', requireAuth, (req, res) => {
-    const totalScripts = db.prepare('SELECT COUNT(*) AS c FROM scripts WHERE user_id = ?').get(req.user.id).c;
-    const totalExec = db.prepare(`
-        SELECT COALESCE(SUM(executions), 0) AS c FROM scripts WHERE user_id = ?
-    `).get(req.user.id).c;
-    const totalPublic = db.prepare('SELECT COUNT(*) AS c FROM scripts WHERE user_id = ? AND is_public = 1').get(req.user.id).c;
-    res.json({ stats: { totalScripts, totalExec, totalPublic } });
+app.delete('/api/scripts/:id', auth.requireAuth, (req, res) => {
+  const script = db.getScriptById(req.params.id);
+  if (!script) return res.status(404).json({ error: 'Script tidak ditemukan' });
+  if (script.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'Akses ditolak' });
+  }
+
+  db.deleteScript(req.params.id);
+  res.json({ ok: true });
 });
 
-/* =========================
-   HALAMAN
-   ========================= */
-app.get('/', redirectIfAuthed, (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
-app.get('/login', redirectIfAuthed, (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
-app.get('/register', redirectIfAuthed, (req, res) => res.sendFile(path.join(__dirname, 'public', 'register.html')));
-app.get('/dashboard', requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
-app.get('/profile', requireAuthPage, (req, res) => res.sendFile(path.join(__dirname, 'public', 'profile.html')));
+// Endpoint raw — diakses oleh executor Roblox, wajib API key
+app.get('/api/raw/:id', rawLimiter, auth.requireApiKey, (req, res) => {
+  const script = db.getScriptById(req.params.id);
+  if (!script) return res.status(404).type('text/plain').send('-- script not found');
 
+  db.logExecution(script.id, req.user.id, req.ip, req.headers['x-hwid'] || null, req.headers['user-agent'] || null);
+
+  res.type('text/plain').send(script.obfuscated_code);
+});
+
+// =========================================================
+// API — Stats
+// =========================================================
+
+app.get('/api/stats', auth.requireAuth, (req, res) => {
+  const stats = db.getUserStats(req.user.id);
+  res.json(stats);
+});
+
+// =========================================================
+// 404 & Error handler
+// =========================================================
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Endpoint tidak ditemukan' });
+});
+
+app.use((req, res) => {
+  res.status(404).sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.use((err, req, res, next) => {
+  console.error('[unhandled]', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// =========================================================
+// Start server
+// =========================================================
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Mawww Protex v2 jalan di port ${PORT}`);
+  console.log('==============================================');
+  console.log('  Mawww Protex running');
+  console.log('  Port   : ' + PORT);
+  console.log('  Env    : ' + (process.env.NODE_ENV || 'development'));
+  console.log('  DB     : ' + (process.env.DATABASE_PATH || './mawww.db'));
+  console.log('==============================================');
 });
