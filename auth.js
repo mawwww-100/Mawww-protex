@@ -38,8 +38,17 @@ function getUserFromToken(req) {
     }
 }
 
-function requireAuth(req, res, next) {
+/** Support login via API key juga (header X-API-Key). */
+function getUserFromRequest(req) {
     const user = getUserFromToken(req);
+    if (user) return user;
+    const apiKey = req.header('X-API-Key') || req.query.api_key;
+    if (!apiKey) return null;
+    return db.prepare('SELECT id, username, email, is_admin FROM users WHERE api_key = ?').get(apiKey) || null;
+}
+
+function requireAuth(req, res, next) {
+    const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ error: 'Belum login.' });
     req.user = user;
     next();
@@ -58,19 +67,15 @@ function redirectIfAuthed(req, res, next) {
     next();
 }
 
-function generateApiKey() {
-    return 'mawww_' + crypto.randomBytes(24).toString('hex');
-}
-
-function generateAccessKey() {
-    return crypto.randomBytes(8).toString('hex').toUpperCase();
-}
+const generateApiKey = () => 'mawww_' + crypto.randomBytes(24).toString('hex');
+const generateAccessKey = () => crypto.randomBytes(8).toString('hex').toUpperCase();
 
 module.exports = {
     signToken,
     setAuthCookie,
     clearAuthCookie,
     getUserFromToken,
+    getUserFromRequest,
     requireAuth,
     requireAuthPage,
     redirectIfAuthed,
