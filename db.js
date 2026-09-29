@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     mode TEXT NOT NULL,
     access_key TEXT UNIQUE,
     is_public INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER,
     executions INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS whitelist (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     script_id INTEGER NOT NULL,
     hwid TEXT NOT NULL,
+    note TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
 );
@@ -48,12 +50,14 @@ CREATE TABLE IF NOT EXISTS executions (
     script_id INTEGER NOT NULL,
     hwid TEXT,
     executor TEXT,
+    ip TEXT,
     executed_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
     FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_scripts_user ON scripts(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_exec_script ON executions(script_id, executed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wl_script ON whitelist(script_id, hwid);
 `);
 
 module.exports = db;
