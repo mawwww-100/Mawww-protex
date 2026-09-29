@@ -1,52 +1,35 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Login — Mawww Protex</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Masuk — Mawww Protex</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
-<div class="auth-wrap">
-  <div class="card">
-    <h1>Mawww <span style="color:#58a6ff;">Protex</span></h1>
-    <p class="sub" style="color:#8b949e;margin-top:0;">Free Lua obfuscator — Delta compatible.</p>
+<body class="auth-page">
+  <main class="auth-card">
+    <header class="auth-header">
+      <h1>Mawww Protex</h1>
+      <p>Masuk untuk mengelola script Anda</p>
+    </header>
 
-    <div class="form-group">
-      <label>Username atau Email</label>
-      <input type="text" id="username" autocomplete="username" />
-    </div>
-    <div class="form-group">
-      <label>Password</label>
-      <input type="password" id="password" autocomplete="current-password" />
-    </div>
-    <div class="row">
-      <button id="btn" onclick="login()">Login</button>
-      <span style="color:#8b949e;font-size:13px;">Belum punya akun? <a href="/register">Daftar</a></span>
-    </div>
-    <div id="status" class="status"></div>
-  </div>
-</div>
-<div id="toast"></div>
-<script src="/toast.js"></script>
-<script>
-const $ = (id) => document.getElementById(id);
-async function login() {
-  const btn = $('btn'), st = $('status');
-  btn.disabled = true; st.className = 'status'; st.textContent = 'Memproses...';
-  try {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: $('username').value, password: $('password').value })
-    });
-    const data = await res.json();
-    if (!res.ok) { st.className = 'status err'; st.textContent = data.error; return; }
-    window.location.href = '/dashboard';
-  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
-  finally { btn.disabled = false; }
-}
-document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-</script>
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="identifier">Username atau Email</label>
+        <input id="identifier" name="identifier" type="text" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <button id="login-submit" class="btn btn-primary btn-block" type="submit">Masuk</button>
+    </form>
+
+    <p class="auth-footer">Belum punya akun? <a href="/register">Daftar di sini</a></p>
+  </main>
+
+  <script src="/js/toast.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/login.js"></script>
 </body>
 </html>
