@@ -1,110 +1,66 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Profile — Mawww Protex</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profil — Mawww Protex</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
-<body class="has-bg">
-<nav class="topbar">
-  <div class="links">
-    <strong style="color:#58a6ff;">Mawww Protex</strong>
-    <a href="/dashboard">Dashboard</a>
-    <a href="/profile">Profile</a>
-  </div>
-  <div class="user">
-    <span id="username">...</span>
-    <button class="small alt" onclick="logout()">Logout</button>
-  </div>
-</nav>
+<body>
+  <header class="app-header">
+    <div class="brand">Mawww Protex</div>
+    <nav>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/profile" class="active">Profil</a>
+      <span class="user" data-username></span>
+      <button class="btn btn-sm" data-logout>Logout</button>
+    </nav>
+  </header>
 
-<div class="card">
-  <h3>Info Akun</h3>
-  <div class="row"><label style="min-width:120px;">Username</label><span id="pUsername">-</span></div>
-  <div class="row"><label style="min-width:120px;">Email</label><span id="pEmail">-</span></div>
-  <div class="row"><label style="min-width:120px;">Terdaftar</label><span id="pCreated">-</span></div>
-</div>
+  <main class="container">
+    <div class="grid-2">
+      <section class="card">
+        <h2>Informasi Akun</h2>
+        <div class="kv"><span class="k">Username</span><span class="v" id="info-username">-</span></div>
+        <div class="kv"><span class="k">Email</span><span class="v" id="info-email">-</span></div>
+      </section>
 
-<div class="card">
-  <h3>API Key</h3>
-  <p class="hint">Gunakan API key untuk akses programatik via header <code>X-API-Key</code>.</p>
-  <div class="row">
-    <input type="text" id="apiKey" readonly style="font-family:monospace;" />
-    <button class="alt" onclick="copyApiKey()">Copy</button>
-    <button class="danger" onclick="regenKey()">Regenerate</button>
-  </div>
-</div>
+      <section class="card">
+        <h2>API Key</h2>
+        <div class="kv">
+          <span class="k">Key</span>
+          <span class="v" id="info-api-key">-</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button id="copy-key" class="btn btn-sm">Copy</button>
+          <button id="regenerate-key" class="btn btn-sm btn-danger">Regenerasi</button>
+        </div>
+      </section>
+    </div>
 
-<div class="card">
-  <h3>Ganti Password</h3>
-  <div class="form-group">
-    <label>Password Lama</label>
-    <input type="password" id="curPass" />
-  </div>
-  <div class="form-group">
-    <label>Password Baru</label>
-    <input type="password" id="newPass" />
-    <div class="hint">Minimal 6 karakter.</div>
-  </div>
-  <div class="row">
-    <button onclick="changePass()">Simpan</button>
-  </div>
-  <div id="status" class="status"></div>
-</div>
+    <section class="card">
+      <h2>Ganti Password</h2>
+      <form id="change-password-form" novalidate>
+        <div class="field">
+          <label for="currentPassword">Password Saat Ini</label>
+          <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="field">
+          <label for="newPassword">Password Baru</label>
+          <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required />
+        </div>
+        <div class="field">
+          <label for="confirmPassword">Konfirmasi Password Baru</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required />
+        </div>
+        <button id="change-password-submit" class="btn btn-primary" type="submit">Simpan Password</button>
+      </form>
+    </section>
+  </main>
 
-<div id="toast"></div>
-<script src="/toast.js"></script>
-<script>
-const $ = (id) => document.getElementById(id);
-const fmtDate = ts => ts ? new Date(ts * 1000).toLocaleString('id-ID') : '-';
-
-async function loadMe() {
-  const res = await fetch('/api/auth/me');
-  if (!res.ok) { window.location.href = '/login'; return; }
-  const { user } = await res.json();
-  $('username').textContent = '@' + user.username;
-  $('pUsername').textContent = user.username;
-  $('pEmail').textContent = user.email;
-  $('pCreated').textContent = fmtDate(user.created_at);
-  $('apiKey').value = user.api_key || '';
-}
-
-async function copyApiKey() {
-  await navigator.clipboard.writeText($('apiKey').value);
-  toast('API key dicopy.', 'ok');
-}
-
-async function regenKey() {
-  if (!confirm('Regenerate API key? Key lama akan langsung tidak valid.')) return;
-  const res = await fetch('/api/auth/regenerate-key', { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) { toast(data.error, 'err'); return; }
-  $('apiKey').value = data.api_key;
-  toast('API key baru dibuat.', 'ok');
-}
-
-async function changePass() {
-  const st = $('status');
-  st.className = 'status'; st.textContent = 'Memproses...';
-  const res = await fetch('/api/auth/change-password', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ current: $('curPass').value, next: $('newPass').value })
-  });
-  const data = await res.json();
-  if (!res.ok) { st.className = 'status err'; st.textContent = data.error; return; }
-  st.className = 'status ok'; st.textContent = 'Password berhasil diubah.';
-  $('curPass').value = ''; $('newPass').value = '';
-  toast('Password diubah.', 'ok');
-}
-
-async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/login';
-}
-
-loadMe();
-</script>
+  <script src="/js/toast.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/guard.js"></script>
+  <script src="/js/profile.js"></script>
 </body>
 </html>
